@@ -10,11 +10,16 @@ const server = http.createServer(app);
 
 const port = env.port;
 
-const startServer = async () => {
-  await connectDb();
-  server.listen(port, (req, res) => {
-    console.log(`Server is listening one port ${port}`);
+const startServer = () => {
+  server.on("error", (error) =>
+    console.error(`Server failed to start: ${error.message}`),
+  );
+  server.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
   });
+  connectDb()
+    .then(() => console.log("Database ready"))
+    .catch((error) => console.error(`Database unavailable: ${error.message}`));
 };
 
 startServer();
