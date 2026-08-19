@@ -1,16 +1,9 @@
-import { MongoClient } from "mongodb";
+import mongoose from "mongoose";
 import { env } from "./env.js";
 
-const mongourl = env.mongourl;
-
-const client = new MongoClient(mongourl);
-
 export const connectDb = async () => {
-  try {
-    await client.connect();
-    console.log("Database Connected Successfully");
-  } catch (error) {
-    console.log(error?.message || "Database Connection Error");
-  }
-}
+  if (!env.mongourl) throw new Error("MONGODB_URI is required");
+  await mongoose.connect(env.mongourl, { serverSelectionTimeoutMS: 5000 });
+  console.log("Database connected");
+};
 
