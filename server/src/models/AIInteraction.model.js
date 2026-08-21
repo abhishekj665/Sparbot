@@ -31,6 +31,11 @@ const aiInteractionSchema = new mongoose.Schema(
       required: true,
     },
 
+    suggestedCode: {
+      type: String,
+      default: null,
+    },
+
     interactionType: {
       type: String,
       enum: [
@@ -42,6 +47,11 @@ const aiInteractionSchema = new mongoose.Schema(
         "SOLUTION_REQUEST",
         "OTHER",
       ],
+    },
+
+    assessmentStage: {
+      type: String,
+      default: null,
     },
 
     timestamp: {

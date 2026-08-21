@@ -4,6 +4,8 @@ import {
   createAssessment,
   findAssessment,
   findEvaluation,
+  executeAssessment,
+  executeAssessmentTests,
 } from "../services/assessment.service.js";
 
 const send = (handler) => async (req, res, next) => {
@@ -24,6 +26,8 @@ export const getAssessment = send((req) =>
 export const askAssistant = send((req) =>
   createAiInteraction(req.user.id, req.params.id, req.body),
 );
+export const runAssessment = send((req) => executeAssessment(req.user.id, req.params.id, req.body));
+export const runAssessmentTests = send((req) => executeAssessmentTests(req.user.id, req.params.id, req.body));
 export const submitAssessment = send((req) =>
   completeAssessment(req.user.id, req.params.id, req.body),
 );

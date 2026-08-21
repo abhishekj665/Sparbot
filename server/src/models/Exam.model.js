@@ -45,6 +45,18 @@ const examSchema = new mongoose.Schema(
       default: "java",
     },
 
+    assistantStage: {
+      type: String,
+      enum: ["FRAME_PROBLEM", "CONSTRAINTS", "APPROACH", "EDGE_CASES", "COMPLEXITY", "IMPLEMENT", "COMPLETE"],
+      default: "FRAME_PROBLEM",
+    },
+
+    lastSuccessfulRun: {
+      codeHash: { type: String, default: null },
+      language: { type: String, default: null },
+      completedAt: { type: Date, default: null },
+    },
+
     codeScore: {
       type: Number,
       default: 0,

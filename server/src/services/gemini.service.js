@@ -2,24 +2,24 @@ import axios from "axios";
 import { env } from "../config/env.js";
 
 const fallback = ({ codeScore, aiScore, timeScore }) => {
-  const finalScore = Math.round(
-    codeScore * 0.5 + aiScore * 0.3 + timeScore * 0.2,
-  );
   return {
+    // Gemini gives qualitative feedback only. Execution-derived codeScore is retained.
     codeScore,
     aiScore,
     problemSolvingScore: codeScore,
     timeScore,
-    finalScore,
-    result: finalScore >= 75 ? "PASS" : "FAIL",
-    summary: "Evaluation completed without Gemini.",
+    finalScore: 0,
+    result: "FAIL",
+    summary: "Test correctness and assessment-process score were calculated without an efficiency review.",
+    timeComplexity: "Not available",
+    efficiencyScore: 0,
   };
 };
 
 export const evaluateWithGemini = async (data) => {
   if (!env.geminiApiKey) return fallback(data);
   try {
-    const prompt = `Evaluate this coding assessment. Return only JSON with codeScore, aiScore, problemSolvingScore, timeScore, finalScore, result, summary. Every score is an integer from 0 to 100 and result is PASS or FAIL.\nProblem: ${data.question.title}\n${data.question.description}\nLanguage: ${data.language}\nCode: ${data.code}\nTime used: ${data.timeUsedMinutes} minutes\nAI interactions: ${JSON.stringify(data.interactions.map((item) => ({ question: item.userMessage, type: item.interactionType })))}`;
+    const prompt = `Review this submitted coding assessment. Return only JSON with problemSolvingScore, summary, and timeComplexity. problemSolvingScore is an integer 0-100. timeComplexity must be a concise Big-O estimate such as O(n), O(n log n), O(n²), or \"Unable to determine\". Do not award points for asking the assistant and do not override test execution. Give a concise, useful summary of code quality and likely edge cases.\nProblem: ${data.question.title}\n${data.question.description}\nLanguage: ${data.language}\nCode: ${data.code}`;
     const { data: response } = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.geminiApiKey}`,
       {
@@ -35,25 +35,18 @@ export const evaluateWithGemini = async (data) => {
     if (!text) return fallback(data);
     const result = JSON.parse(text);
     return {
-      codeScore: Math.min(
-        100,
-        Math.max(0, Number(result.codeScore) || data.codeScore),
-      ),
-      aiScore: Math.min(
-        100,
-        Math.max(0, Number(result.aiScore) || data.aiScore),
-      ),
+      codeScore: data.codeScore,
+      aiScore: data.aiScore,
       problemSolvingScore: Math.min(
         100,
         Math.max(0, Number(result.problemSolvingScore) || data.codeScore),
       ),
-      timeScore: Math.min(
-        100,
-        Math.max(0, Number(result.timeScore) || data.timeScore),
-      ),
-      finalScore: Math.min(100, Math.max(0, Number(result.finalScore) || 0)),
-      result: result.result === "PASS" ? "PASS" : "FAIL",
+      timeScore: data.timeScore,
+      finalScore: 0,
+      result: "FAIL",
       summary: String(result.summary || "Evaluation completed."),
+      timeComplexity: String(result.timeComplexity || "Unable to determine"),
+      efficiencyScore: Math.min(100, Math.max(0, Number(result.efficiencyScore) || 0)),
     };
   } catch {
     return fallback(data);
