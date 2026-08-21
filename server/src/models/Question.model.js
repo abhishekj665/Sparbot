@@ -89,6 +89,7 @@ const questionSchema = new mongoose.Schema(
   },
 );
 
-const Questions = mongoose.model("Questions", questionSchema);
+// The model name must match Exam.questionId's ref for populate() to work.
+const Questions = mongoose.model("Question", questionSchema);
 
 export default Questions;
