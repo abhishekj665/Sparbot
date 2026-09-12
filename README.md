@@ -70,7 +70,7 @@ notepad server\.env
 Fill in these values and save the file:
 
 ```env
-PORT=5000
+PORT=3000
 MONGODB_URI=your MongoDB Atlas connection string
 TOKEN_SECRET=any long random private phrase
 GROQ_API_KEY=your Groq API key
@@ -136,7 +136,7 @@ cd D:\path\to\Sparbot\server
 npm run dev
 ```
 
-Wait until you see `Database ready` and `Server listening on port 5000`.
+Wait until you see `Database ready` and `Server listening on port 3000`.
 
 In the third window, start the website:
 
@@ -151,5 +151,5 @@ Open the URL shown by Vite, normally [http://localhost:5173](http://localhost:51
 
 If the page opens but something does not work, check these addresses in your browser:
 
-- [http://localhost:5000/api/health](http://localhost:5000/api/health) should report that the API is running.
+- [http://localhost:3000/api/health](http://localhost:3000/api/health) should report that the API is running.
 - [http://localhost:2000/api/v2/runtimes](http://localhost:2000/api/v2/runtimes) should include Java.

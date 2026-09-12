@@ -13,7 +13,6 @@ const questions = [
 
 class Solution {
   public int add(int first, int second) {
-    // Return the sum of first and second.
     return 0;
   }
 }
@@ -41,7 +40,6 @@ public class Main {
 
 class Solution {
   public int findLargest(int[] numbers) {
-    // Return the largest value in numbers.
     return 0;
   }
 }
@@ -70,7 +68,6 @@ public class Main {
 
 class Solution {
   public int countEven(int[] values) {
-    // Return how many values are even.
     return 0;
   }
 }

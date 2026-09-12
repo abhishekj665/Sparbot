@@ -72,7 +72,7 @@ export default function ChatPanel({
           onChange={(event) => setMessage(event.target.value)}
           placeholder="Describe the current assessment step..."
         />
-        <button disabled={loading || !message.trim()}>Send</button>
+        <button disabled={loading || !message.trim()}>{loading ? "Thinking..." : "Send"}</button>
       </form>
     </aside>
   );

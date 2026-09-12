@@ -67,11 +67,20 @@ export const getTestCases = (question) => {
   const items = Array.isArray(raw) ? raw : raw.cases ?? raw.testCases ?? [];
   return items.map(asCase).filter(Boolean).slice(0, 20);
 };
-const normalize = (value) => String(value || "").trim().replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ");
+const normalize = (value) => String(value || "")
+  .trim()
+  .replace(/\r\n/g, "\n")
+  .replace(/[ \t]+/g, " ")
+  .replace(/\s*([,\[\]])\s*/g, "$1");
 const normalizeExpected = (value) => {
   const normalized = normalize(value);
   return /^(true|false)$/i.test(normalized) ? normalized.toLowerCase() : normalized;
 };
+
+const cleanJavaSource = (source) => String(source || "")
+  .replace(/^\s*```(?:java|kotlin)?\s*$/gim, "")
+  .replace(/^\s*```\s*$/gm, "")
+  .trim();
 
 const matrixLiteralForJava = (value) => {
   if (!/^\s*\[\s*\[/.test(value)) return null;
@@ -85,8 +94,10 @@ const matrixLiteralForJava = (value) => {
 const withJavaTestMain = (source, body) => {
   const main = /public\s+static\s+void\s+main\s*\(\s*String\s*\[\]\s+\w+\s*\)\s*\{/.exec(source);
   if (!main) {
-    const end = source.lastIndexOf("}");
-    return end < 0 ? null : `${source.slice(0, end)}public static void main(String[] args) { ${body} }\n${source.slice(end)}`;
+    const solutionSource = source.replace(/\bpublic\s+class\s+Solution\b/, "class Solution");
+    return /\bclass\s+Solution\b/.test(solutionSource)
+      ? `${solutionSource}\npublic class Main { public static void main(String[] args) { ${body} } }`
+      : null;
   }
   let depth = 1;
   let index = main.index + main[0].length;
@@ -144,16 +155,70 @@ const javaStringFunctionCase = async ({ code, testCase }) => {
   return harness ? runProgram({ code: harness, language: "java" }) : null;
 };
 
+const splitNamedArguments = (input) => {
+  const matches = [...String(input).matchAll(/(?:^|,\s*)([A-Za-z_]\w*)\s*=/g)];
+  if (!matches.length) return [{ name: null, value: String(input).trim() }];
+  return matches.map((match, index) => ({
+    name: match[1],
+    value: input.slice(match.index + match[0].length, matches[index + 1]?.index ?? input.length).replace(/,\s*$/, "").trim(),
+  }));
+};
+
+const javaLiteralForType = (type, value) => {
+  const normalizedType = type.replace(/\s+/g, " ").trim();
+  if (/^(int|long|double|boolean)$/.test(normalizedType) && /^(?:-?\d+(?:\.\d+)?|true|false)$/i.test(value)) return value;
+  if (normalizedType === "String") return stringLiteralForJava(value);
+  if (normalizedType === "int[]") {
+    try { const values = JSON.parse(value); return Array.isArray(values) && values.every(Number.isInteger) ? `new int[]{${values.join(",")}}` : null; } catch { return null; }
+  }
+  if (normalizedType === "String[]") {
+    try { const values = JSON.parse(value); return Array.isArray(values) && values.every((item) => typeof item === "string") ? `new String[]{${values.map(JSON.stringify).join(",")}}` : null; } catch { return null; }
+  }
+  if (normalizedType === "int[][]") return matrixLiteralForJava(value) ? `new int[][]${matrixLiteralForJava(value)}` : null;
+  return null;
+};
+
+const javaLeetCodeFunctionCase = async ({ code, testCase }) => {
+  if (/public\s+static\s+void\s+main\s*\(/.test(code)) return null;
+  const classMatch = /(?:public\s+)?class\s+Solution\b/.exec(code);
+  const methodMatch = /public\s+(?:static\s+)?([A-Za-z_]\w*(?:\s*<[^>]+>)?(?:\s*\[\])?)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)/.exec(code);
+  const inputs = splitNamedArguments(testCase.input);
+  if (!classMatch || !methodMatch || !inputs) return null;
+  const parameters = methodMatch[3].split(",").map((parameter) => parameter.trim()).filter(Boolean).map((parameter) => {
+    const match = /^(.+?)\s+([A-Za-z_]\w*)$/.exec(parameter);
+    return match ? { type: match[1], name: match[2] } : null;
+  });
+  if (parameters.length !== inputs.length || parameters.some((parameter) => !parameter)) return null;
+  const declarations = parameters.map((parameter, index) => {
+    const literal = javaLiteralForType(parameter.type, inputs[index].value);
+    return literal === null ? null : `${parameter.type} ${parameter.name} = ${literal};`;
+  });
+  if (declarations.some((declaration) => declaration === null)) return null;
+  const invocation = /public\s+static\s+/.test(methodMatch[0])
+    ? `Solution.${methodMatch[2]}(${parameters.map((parameter) => parameter.name).join(", ")})`
+    : `new Solution().${methodMatch[2]}(${parameters.map((parameter) => parameter.name).join(", ")})`;
+  const returnType = methodMatch[1].replace(/\s+/g, "");
+  const printableResult = returnType === "int[][]" || returnType === "String[][]"
+    ? `java.util.Arrays.deepToString(${invocation})`
+    : returnType.endsWith("[]")
+      ? `java.util.Arrays.toString(${invocation})`
+      : invocation;
+  const harness = withJavaTestMain(code, `${declarations.join(" ")} System.out.print(${printableResult});`);
+  return harness ? runProgram({ code: harness, language: "java" }) : null;
+};
+
 export const supportedLanguagesForQuestion = () => ["java"];
 
 export const runProgram = async ({ code, language, input = "" }) => {
-  if (!code?.trim()) throw new ExpressError(400, "Code is required");
-  if (code.length > 50_000) throw new ExpressError(400, "Code must be under 50 KB");
+  const cleanCode = cleanJavaSource(code);
+  if (!cleanCode) throw new ExpressError(400, "Code is required");
+  if (cleanCode.length > 50_000) throw new ExpressError(400, "Code must be under 50 KB");
   if (!env.runnerUrl) throw new ExpressError(503, "Set RUNNER_API_URL to your Piston service.");
-  const request = { code, language, input: String(input).slice(0, 10_000) };
+  const request = { code: cleanCode, language, input: String(input).slice(0, 10_000) };
   return withRunnerSlot(() => runWithPiston(request));
 };
 export const runAgainstTests = async ({ code, language, question }) => {
+  code = cleanJavaSource(code);
   const cases = getTestCases(question);
   if (language === "java" && !/(?:public\s+)?class\s+[A-Za-z_]\w*/.test(code)
     && !/\bpublic\s+(?:static\s+)?(?:boolean|int|long|double|String|List\s*<[^>]+>)\s+[A-Za-z_]\w*\s*\(/.test(code)) {
@@ -175,7 +240,7 @@ export const runAgainstTests = async ({ code, language, question }) => {
   const tests = [];
   for (const testCase of cases) {
     const adapted = language === "java"
-      ? await javaMatrixFunctionCase({ code, testCase }) || await javaStringFunctionCase({ code, testCase })
+      ? await javaLeetCodeFunctionCase({ code, testCase }) || await javaMatrixFunctionCase({ code, testCase }) || await javaStringFunctionCase({ code, testCase })
       : null;
     const result = adapted || await runProgram({ code, language, input: testCase.input });
     tests.push({ input: testCase.input, expected: testCase.expected, output: result.output, passed: result.code === 0 && normalizeExpected(result.stdout) === normalizeExpected(testCase.expected), stderr: result.stderr, timedOut: result.timedOut, time: result.time, memory: result.memory });

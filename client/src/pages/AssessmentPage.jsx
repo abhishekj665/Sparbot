@@ -7,7 +7,6 @@ export default function AssessmentPage({
   question,
   code,
   setCode,
-  language,
   interactions,
   onAsk,
   onApplyCode,
@@ -30,12 +29,13 @@ export default function AssessmentPage({
   useEffect(() => {
     localStorage.setItem(`sparbot_input_${assessment._id}`, input);
   }, [assessment._id, input]);
+  const firstFailedTest = testResult?.tests?.find((test) => !test.passed);
   return (
     <main className="assessment-shell">
       <header className="topbar">
         <div className="brand">Sparbot</div>
         <div className="challenge-label">
-          {question.difficulty} challenge · AI step:{" "}
+          AI step:{" "}
           {assessment.assistantStage?.replaceAll("_", " ") ||
             "PROBLEM DESCRIPTION"}
         </div>
@@ -172,16 +172,18 @@ export default function AssessmentPage({
               </p>
             )}
             {testResult && (
-              <p
-                className={
-                  testResult.passed === testResult.total && testResult.total > 0
-                    ? "test-summary passed"
-                    : "test-summary failed"
-                }
-              >
-                {testResult.message ||
-                  `${testResult.passed}/${testResult.total} database test cases passed`}
-              </p>
+              <>
+                <p className={testResult.passed === testResult.total && testResult.total > 0 ? "test-summary passed" : "test-summary failed"}>
+                  {testResult.message || `${Math.round((testResult.passed / testResult.total) * 100) || 0}% · ${testResult.passed}/${testResult.total} test cases passed`}
+                </p>
+                {firstFailedTest && (
+                  <div className="inline-failure">
+                    <b>First failing case</b>
+                    <span>Expected: <code>{firstFailedTest.expected}</code></span>
+                    <span>Got: <code>{firstFailedTest.output || firstFailedTest.stderr || "(no output)"}</code></span>
+                  </div>
+                )}
+              </>
             )}
           </div>
           <div className="editor-actions">

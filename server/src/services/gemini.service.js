@@ -10,9 +10,9 @@ const fallback = ({ codeScore, aiScore, timeScore }) => {
     timeScore,
     finalScore: 0,
     result: "FAIL",
-    summary: "Test correctness and assessment-process score were calculated without an efficiency review.",
+    summary: "Your score is based on the test cases passed and your assessment process.",
     timeComplexity: "Not available",
-    efficiencyScore: 0,
+    efficiencyScore: codeScore,
   };
 };
 
@@ -46,7 +46,7 @@ export const evaluateWithGemini = async (data) => {
       result: "FAIL",
       summary: String(result.summary || "Evaluation completed."),
       timeComplexity: String(result.timeComplexity || "Unable to determine"),
-      efficiencyScore: Math.min(100, Math.max(0, Number(result.efficiencyScore) || 0)),
+      efficiencyScore: data.codeScore,
     };
   } catch {
     return fallback(data);
