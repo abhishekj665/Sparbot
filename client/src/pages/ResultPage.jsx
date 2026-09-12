@@ -1,80 +1,104 @@
-export default function ResultPage({ evaluation, onRestart }) {
+const resultLabel = (testResults) => {
+  if (!testResults?.available) return "Submission complete";
+  return testResults.passed === testResults.total && testResults.total > 0
+    ? "Accepted"
+    : "Wrong answer";
+};
+
+export default function ResultPage({ evaluation, code, onRestart }) {
   const testResults = evaluation.aiAnalysis?.testResults;
-  const fullyAccepted =
-    testResults?.available &&
-    testResults.total > 0 &&
-    testResults.passed === testResults.total;
+  const total = testResults?.total || 0;
+  const passed = testResults?.passed || 0;
+  const percentage =
+    testResults?.available && total > 0
+      ? Math.round((passed / total) * 100)
+      : 0;
+  const firstFailure = testResults?.tests?.find((test) => !test.passed);
+  const accepted = testResults?.available && total > 0 && passed === total;
+
   return (
-    <main className="result">
-      <h1>
-        {fullyAccepted && evaluation.result === "PASS"
-          ? "Accepted"
-          : evaluation.result === "PASS"
-            ? "Completed"
-            : "Needs review"}
-      </h1>
-      {testResults?.available && (
-        <p className="acceptance-rate">
-          {evaluation.codeScore}% correct · {testResults.passed}/
-          {testResults.total} test cases passed
+    <main className="result-page">
+      <section className="submission-result">
+        <p
+          className={
+            accepted
+              ? "submission-status accepted"
+              : "submission-status rejected"
+          }
+        >
+          {resultLabel(testResults)}
         </p>
-      )}
-      <p className="score">{evaluation.finalScore}/100</p>
-      <p>{evaluation.aiAnalysis?.summary || "Your assessment is complete."}</p>
-      <section className="test-results">
-        <h2>Database test cases</h2>
-        <p>
-          {testResults?.message ||
-            (testResults?.available
-              ? "Test results recorded."
-              : "No database test cases were executed.")}
+        <div className="submission-summary">
+          <strong>{percentage}%</strong>
+          <span>
+            {testResults?.available
+              ? `${passed} / ${total} test cases passed`
+              : "No test result available"}
+          </span>
+        </div>
+        <div
+          className="pass-track"
+          aria-label={`${percentage}% of test cases passed`}
+        >
+          <span style={{ width: `${percentage}%` }} />
+        </div>
+        <p className="submission-note">
+          {accepted
+            ? "All test cases passed. Great work!"
+            : firstFailure
+              ? "Showing the first failing test case so you can focus on the next fix."
+              : testResults?.message || "Your assessment is complete."}
         </p>
-        {testResults?.tests
-          ?.filter((test) => test.input !== undefined)
-          .map((test, index) => (
-            <article
-              className={test.passed ? "test-case passed" : "test-case failed"}
-              key={index}
-            >
-              <b>
-                Case {index + 1}:{" "}
-                {test.passed
-                  ? "Passed"
-                  : test.timedOut
-                    ? "Time limit exceeded"
-                    : "Failed"}
-              </b>
-              <span>
-                Input: <code>{test.input || "(empty)"}</code>
-              </span>
-              <span>
-                Expected: <code>{test.expected}</code>
-              </span>
-              {!test.passed && (
-                <span>
-                  Output:{" "}
-                  <code>{test.output || test.stderr || "(no output)"}</code>
-                </span>
-              )}
-              {test.time != null && (
-                <span>
-                  Runtime: {test.time}s
-                  {test.memory != null && ` · Memory: ${test.memory} KB`}
-                </span>
-              )}
-            </article>
-          ))}
       </section>
-      <div className="scores">
-        <span>Database correctness {evaluation.codeScore}%</span>
-        <span>Assessment process {evaluation.aiScore}%</span>
-        <span>Efficiency {evaluation.aiAnalysis?.efficiencyScore ?? 0}%</span>
+      {firstFailure && (
+        <section className="failure-card" aria-label="First failing test case">
+          <h2>
+            {firstFailure.timedOut
+              ? "Time limit exceeded"
+              : "First failing test case"}
+          </h2>
+          <div>
+            <span>Input</span>
+            <code>{firstFailure.input || "(empty)"}</code>
+          </div>
+          <div>
+            <span>Expected</span>
+            <code>{firstFailure.expected ?? "(no expected output)"}</code>
+          </div>
+          <div>
+            <span>Your output</span>
+            <code>
+              {firstFailure.output || firstFailure.stderr || "(no output)"}
+            </code>
+          </div>
+        </section>
+      )}
+      <section className="result-details">
+        <span>
+          Language <b>Java</b>
+        </span>
+        <span>
+          Assessment score <b>{evaluation.finalScore}/100</b>
+        </span>
         <span>
           Time complexity{" "}
-          {evaluation.aiAnalysis?.timeComplexity || "Not available"}
+          <b>{evaluation.aiAnalysis?.timeComplexity || "Not available"}</b>
         </span>
-      </div>
-      <button onClick={onRestart}>Take another assessment</button>
+      </section>
+      {code && (
+        <section className="submitted-code">
+          <div>
+            <span>Code</span>
+            <b>Java</b>
+          </div>
+          <pre>
+            <code>{code}</code>
+          </pre>
+        </section>
+      )}
+      <button type="button" className="restart-button" onClick={onRestart}>
+        Take another assessment
+      </button>
     </main>
   );
 }

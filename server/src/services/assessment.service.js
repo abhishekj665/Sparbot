@@ -3,7 +3,7 @@ import Evaluation from "../models/Evaluation.model.js";
 import Exam from "../models/Exam.model.js";
 import Question from "../models/Question.model.js";
 import { evaluateWithGemini } from "./gemini.service.js";
-import { askGroq } from "./groq.service.js";
+import { askGroq, generateJavaStarterCode } from "./groq.service.js";
 import { getTestCases, runAgainstTests, runProgram, supportedLanguagesForQuestion } from "./runner.service.js";
 import { createHash } from "node:crypto";
 import ExpressError from "../utils/ExpreeError.util.js";
@@ -15,16 +15,36 @@ const languages = ["java"];
 const codeHash = (code) => createHash("sha256").update(String(code)).digest("hex");
 const isJavaFunctionSubmission = (code, question, language) => language === "java"
   && !/public\s+static\s+void\s+main\s*\(/.test(code)
-  && getTestCases(question).some((testCase) => /^\s*\w+\s*=/.test(testCase.input));
+  && /\bclass\s+Solution\b/.test(code)
+  && getTestCases(question).length > 0;
 const assistantStages = ["PROBLEM_DESCRIPTION", "DATA_STRUCTURES", "APPROACH", "STARTER_CODE", "REFINEMENT"];
 const processScoreFor = (stage) => Math.round((Math.max(0, assistantStages.indexOf(stage)) / (assistantStages.length - 1)) * 100);
-const visibleQuestion = (question) => ({
+const visibleTestResults = (results) => {
+  const firstFailure = results.tests?.find((test) => !test.passed);
+  return {
+    available: results.available,
+    passed: results.passed,
+    total: results.total,
+    message: results.message,
+    tests: firstFailure ? [firstFailure] : [],
+  };
+};
+const withoutJavaComments = (code) => String(code || "")
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/^\s*\/\/.*$/gm, "")
+  .replace(/\n{3,}/g, "\n\n")
+  .trim();
+const starterFor = (question, generatedStarter) => {
+  const starter = generatedStarter || question.starterCode?.java || (typeof question.starterCode === "string" ? question.starterCode : "");
+  return withoutJavaComments(starter);
+};
+const visibleQuestion = (question, generatedStarter) => ({
   id: question.id || question._id,
   title: question.title,
   difficulty: question.difficulty,
   topics: question.topics,
   description: question.description,
-  starterCode: question.starterCode,
+  starterCode: { java: starterFor(question, generatedStarter) },
   entryPoint: question.entryPoint,
   allowedLanguages: supportedLanguagesForQuestion(question)
     .filter((language) => !question.assessment?.allowedLanguages?.length || question.assessment.allowedLanguages.includes(language)),
@@ -52,7 +72,7 @@ export const createAssessment = async (userId, { difficulty, language = "java" }
   }).populate("questionId");
   if (active)
     return successResponse(
-      { assessment: active, question: visibleQuestion(active.questionId) },
+      { assessment: active, question: visibleQuestion(active.questionId, active.starterCode) },
       "Active assessment found",
     );
   const [question] = await Question.aggregate([
@@ -66,6 +86,9 @@ export const createAssessment = async (userId, { difficulty, language = "java" }
     );
   if (question.assessment?.allowedLanguages?.length && !question.assessment.allowedLanguages.includes(language))
     throw new ExpressError(400, "This question does not support Java");
+  const generatedStarter = await generateJavaStarterCode(question);
+  if (!generatedStarter) throw new ExpressError(502, "Could not generate the Java starter code. Please try again.");
+  const starterCode = starterFor(question, generatedStarter);
   const startedAt = new Date();
   const assessment = await Exam.create({
     userId,
@@ -73,9 +96,10 @@ export const createAssessment = async (userId, { difficulty, language = "java" }
     startedAt,
     expiresAt: new Date(startedAt.getTime() + duration),
     language,
+    starterCode,
   });
   return successResponse(
-    { assessment, question: visibleQuestion(question) },
+    { assessment, question: visibleQuestion(question, starterCode) },
     "Assessment started",
     201,
   );
@@ -87,7 +111,7 @@ export const findAssessment = async (userId, assessmentId) => {
     .sort({ createdAt: 1 })
     .select("userMessage aiResponse suggestedCode interactionType createdAt");
   return successResponse(
-    { assessment, question: visibleQuestion(assessment.questionId), interactions },
+    { assessment, question: visibleQuestion(assessment.questionId, assessment.starterCode), interactions },
     "Assessment retrieved",
   );
 };
@@ -179,7 +203,7 @@ export const executeAssessmentTests = async (userId, assessmentId, { code, langu
   if (assessment.lastSuccessfulRun?.codeHash !== codeHash(code) || assessment.lastSuccessfulRun?.language !== selectedLanguage)
     throw new ExpressError(400, "Run the current code successfully before checking test cases.");
   const result = await runAgainstTests({ code, language: selectedLanguage, question: assessment.questionId });
-  return successResponse({ result }, "Database test cases executed");
+  return successResponse({ result: visibleTestResults(result) }, "Database test cases executed");
 };
 
 export const completeAssessment = async (
@@ -226,7 +250,9 @@ export const completeAssessment = async (
     aiScore,
     timeScore,
   });
-  const efficiencyScore = Number(evaluationData.efficiencyScore) || 0;
+  // Test efficiency is the visible pass rate: 50% of cases passed is 50%, and all cases passed is 100%.
+  const efficiencyScore = codeScore;
+  evaluationData.efficiencyScore = efficiencyScore;
   evaluationData.finalScore = Math.round(codeScore * 0.6 + aiScore * 0.3 + efficiencyScore * 0.1);
   evaluationData.result = evaluationData.finalScore >= 60 && codeScore > 0 ? "PASS" : "FAIL";
   Object.assign(assessment, {
@@ -250,11 +276,7 @@ export const completeAssessment = async (
         scoring: { correctnessWeight: 60, processWeight: 30, efficiencyWeight: 10 },
         timeComplexity: evaluationData.timeComplexity || "Not available",
         testResults: {
-          available: testResults.available,
-          passed: testResults.passed,
-          total: testResults.total,
-          tests: testResults.tests,
-          message: testResults.message,
+          ...visibleTestResults(testResults),
         },
       },
     },

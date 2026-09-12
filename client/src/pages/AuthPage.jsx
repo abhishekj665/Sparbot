@@ -9,6 +9,7 @@ export default function AuthPage({ mode, setMode, onSubmit, loading, error }) {
       <button
         className="link"
         onClick={() => setMode(mode === "login" ? "register" : "login")}
+        disabled={loading}
       >
         {mode === "login"
           ? "Need an account? Register"

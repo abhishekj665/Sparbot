@@ -40,6 +40,11 @@ const examSchema = new mongoose.Schema(
       default: null,
     },
 
+    starterCode: {
+      type: String,
+      default: null,
+    },
+
     language: {
       type: String,
       default: "java",

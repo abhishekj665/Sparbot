@@ -22,7 +22,7 @@ export default function AssessmentSetup({ onStart, loading }) {
         disabled={loading}
         onClick={() => onStart({ difficulty })}
       >
-        Start assessment
+        {loading ? "Starting..." : "Start assessment"}
       </button>
     </section>
   );
