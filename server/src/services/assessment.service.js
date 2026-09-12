@@ -11,28 +11,13 @@ import { successResponse } from "../utils/response.util.js";
 
 const duration = 20 * 60 * 1000;
 const difficulties = ["Easy", "Medium", "Hard"];
-const languages = ["java", "python", "cpp"];
+const languages = ["java"];
 const codeHash = (code) => createHash("sha256").update(String(code)).digest("hex");
 const isJavaFunctionSubmission = (code, question, language) => language === "java"
   && !/public\s+static\s+void\s+main\s*\(/.test(code)
   && getTestCases(question).some((testCase) => /^\s*\w+\s*=/.test(testCase.input));
-const assistantStages = ["FRAME_PROBLEM", "CONSTRAINTS", "APPROACH", "EDGE_CASES", "COMPLEXITY", "IMPLEMENT", "COMPLETE"];
+const assistantStages = ["PROBLEM_DESCRIPTION", "DATA_STRUCTURES", "APPROACH", "STARTER_CODE", "REFINEMENT"];
 const processScoreFor = (stage) => Math.round((Math.max(0, assistantStages.indexOf(stage)) / (assistantStages.length - 1)) * 100);
-const stageRequirements = {
-  FRAME_PROBLEM: /\b(input|parameter|argument)\b/i,
-  CONSTRAINTS: /\b(constraint|limit|size|length|range|maximum|minimum)\b/i,
-  APPROACH: /\b(approach|algorithm|recurs|iterat|loop|stack|queue|map|hash|tree|graph|dynamic)\b/i,
-  EDGE_CASES: /\b(edge|empty|null|none|single|duplicate|negative|base case)\b/i,
-  COMPLEXITY: /\b(time|space|o\s*\(|complexity)\b/i,
-};
-const isStageResponseSufficient = (stage, message) => {
-  const words = String(message).trim().split(/\s+/).filter(Boolean).length;
-  if (stage === "IMPLEMENT") return true;
-  if (words < 12) return false;
-  if (stage === "FRAME_PROBLEM") return /\b(input|parameter|argument)\b/i.test(message) && /\b(output|return|result)\b/i.test(message);
-  if (stage === "COMPLEXITY") return /\btime\b/i.test(message) && /\bspace\b/i.test(message) && /\bo\s*\(/i.test(message);
-  return stageRequirements[stage]?.test(message);
-};
 const visibleQuestion = (question) => ({
   id: question.id || question._id,
   title: question.title,
@@ -55,11 +40,11 @@ const getExam = async (id, userId, { allowExpired = false } = {}) => {
   return exam;
 };
 
-export const createAssessment = async (userId, { difficulty, language = "python" }) => {
+export const createAssessment = async (userId, { difficulty, language = "java" }) => {
   if (!difficulties.includes(difficulty))
     throw new ExpressError(400, "Choose Easy, Medium, or Hard");
   if (!languages.includes(language))
-    throw new ExpressError(400, "Choose java, python, or cpp");
+    throw new ExpressError(400, "Java is the only supported language");
   const active = await Exam.findOne({
     userId,
     status: "IN_PROGRESS",
@@ -80,7 +65,7 @@ export const createAssessment = async (userId, { difficulty, language = "python"
       `No ${difficulty} question is available`,
     );
   if (question.assessment?.allowedLanguages?.length && !question.assessment.allowedLanguages.includes(language))
-    throw new ExpressError(400, `This question does not support ${language}`);
+    throw new ExpressError(400, "This question does not support Java");
   const startedAt = new Date();
   const assessment = await Exam.create({
     userId,
@@ -118,7 +103,7 @@ export const createAiInteraction = async (
     throw new ExpressError(400, "Assessment is no longer active");
   const selectedLanguage = language || assessment.language;
   if (!languages.includes(selectedLanguage))
-    throw new ExpressError(400, "Choose java, python, or cpp");
+    throw new ExpressError(400, "Java is the only supported language");
   const history = await AIInteraction.find({ examId: assessment.id })
     .sort({ createdAt: 1 })
     .select("userMessage aiResponse");
@@ -128,16 +113,34 @@ export const createAiInteraction = async (
     code,
     language: selectedLanguage,
     history,
+    stage: assessment.assistantStage || "PROBLEM_DESCRIPTION",
   });
+  const stageTransitions = {
+    PROBLEM_DESCRIPTION: "DATA_STRUCTURES",
+    DATA_STRUCTURES: "APPROACH",
+    APPROACH: "REFINEMENT",
+    STARTER_CODE: "REFINEMENT",
+    REFINEMENT: "REFINEMENT",
+  };
+  const currentStage = assistantStages.includes(assessment.assistantStage)
+    ? assessment.assistantStage
+    : "PROBLEM_DESCRIPTION";
+  const nextStage = aiResult.advance && aiResult.nextStage === stageTransitions[currentStage]
+    ? aiResult.nextStage
+    : currentStage;
+  const canSuggestCode = currentStage === "STARTER_CODE" || currentStage === "REFINEMENT"
+    || (currentStage === "APPROACH" && nextStage === "REFINEMENT");
+  assessment.assistantStage = nextStage;
+  await assessment.save();
   const interaction = await AIInteraction.create({
     examId: assessment.id,
     userId,
     questionId: assessment.questionId.id,
     userMessage: message,
     aiResponse: aiResult.reply,
-    suggestedCode: aiResult.code,
+    suggestedCode: canSuggestCode ? aiResult.code : null,
     interactionType,
-    assessmentStage: "ADAPTIVE",
+    assessmentStage: nextStage,
   });
   return successResponse({ interaction }, "AI response generated");
 };
@@ -172,7 +175,7 @@ export const executeAssessmentTests = async (userId, assessmentId, { code, langu
   const assessment = await getExam(assessmentId, userId);
   if (assessment.status !== "IN_PROGRESS") throw new ExpressError(400, "Assessment is no longer active");
   const selectedLanguage = language || assessment.language;
-  if (!languages.includes(selectedLanguage)) throw new ExpressError(400, "Choose java, python, or cpp");
+  if (!languages.includes(selectedLanguage)) throw new ExpressError(400, "Java is the only supported language");
   if (assessment.lastSuccessfulRun?.codeHash !== codeHash(code) || assessment.lastSuccessfulRun?.language !== selectedLanguage)
     throw new ExpressError(400, "Run the current code successfully before checking test cases.");
   const result = await runAgainstTests({ code, language: selectedLanguage, question: assessment.questionId });
@@ -187,7 +190,7 @@ export const completeAssessment = async (
   const isAutoSubmit = autoSubmit === true;
   if (!code?.trim() && !isAutoSubmit) throw new ExpressError(400, "Code is required");
   if (language && !languages.includes(language))
-    throw new ExpressError(400, "Choose java, python, or cpp");
+    throw new ExpressError(400, "Java is the only supported language");
   // The browser timer can reach this request a few milliseconds after expiresAt.
   // Let that single automatic submission finish instead of discarding the draft.
   const assessment = await getExam(assessmentId, userId, { allowExpired: isAutoSubmit });
@@ -211,7 +214,7 @@ export const completeAssessment = async (
   const codeScore = testResults.available
     && testResults.total > 0 ? Math.round((testResults.passed / testResults.total) * 100)
     : 0;
-  const aiScore = processScoreFor(assessment.assistantStage || "FRAME_PROBLEM");
+  const aiScore = processScoreFor(assessment.assistantStage || "PROBLEM_DESCRIPTION");
   const timeScore = Math.max(0, Math.round(100 - timeUsedMinutes * 3));
   const evaluationData = await evaluateWithGemini({
     question: assessment.questionId,

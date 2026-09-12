@@ -1,6 +1,6 @@
 # Safe local code execution with Piston
 
-Sparbot runs Python, C++, and Java in Piston's `isolate` sandbox. Submitted code never runs in the Express process. Piston supports cgroup v2, which Docker Desktop on Windows provides.
+Sparbot runs Java only in Piston's `isolate` sandbox. Submitted code never runs in the Express process. Piston supports cgroup v2, which Docker Desktop on Windows provides.
 
 - Each program run is limited to 2 CPU seconds, 4 seconds of wall time, 256 MB memory, 32 processes/threads, and 256 KB of generated files/output. Compilation has an 8-second, 512 MB allowance.
 - The Piston container is capped at 2 CPUs, 2 GB RAM, and 256 PIDs; only two programs may execute at once.

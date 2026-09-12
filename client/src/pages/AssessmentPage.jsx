@@ -2,21 +2,224 @@ import { useEffect, useState } from "react";
 import ChatPanel from "../components/ChatPanel";
 import { useTimer } from "../hooks/useTimer";
 
-export default function AssessmentPage({ assessment, question, code, setCode, language, onLanguageChange, interactions, onAsk, onApplyCode, onRun, onRunTests, runResult, testResult, onSubmit, onExit, loading, error }) {
+export default function AssessmentPage({
+  assessment,
+  question,
+  code,
+  setCode,
+  language,
+  interactions,
+  onAsk,
+  onApplyCode,
+  onRun,
+  onRunTests,
+  runResult,
+  testResult,
+  onSubmit,
+  onExit,
+  loading,
+  error,
+}) {
   const time = useTimer(assessment.expiresAt, () => onSubmit(true));
   const [input, setInput] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [editorFocus, setEditorFocus] = useState(false);
-  const extension = language === "python" ? "py" : language === "cpp" ? "cpp" : "java";
-  useEffect(() => { setInput(localStorage.getItem(`sparbot_input_${assessment._id}`) || ""); }, [assessment._id]);
-  useEffect(() => { localStorage.setItem(`sparbot_input_${assessment._id}`, input); }, [assessment._id, input]);
-  return <main className="assessment-shell">
-    <header className="topbar"><div className="brand">Sparbot</div><div className="challenge-label">{question.difficulty} challenge · AI stage: {assessment.assistantStage?.replaceAll("_", " ") || "FRAME PROBLEM"}</div><label className="language-select">Language<select value={language} onChange={(event) => onLanguageChange(event.target.value)}><option value="python">Python</option><option value="java">Java</option><option value="cpp">C++</option></select></label><div className="timer">Time left <b>{time}</b></div><button type="button" className="assistant-button" onClick={() => setAssistantOpen(true)}>AI assistant</button><button type="button" className="exit-button" onClick={() => { if (window.confirm("Exit and submit your current solution? You cannot continue this assessment afterward.")) onExit(); }} disabled={loading}>Exit & submit</button><button type="button" className="submit-button" onClick={() => onSubmit()} disabled={loading}>Submit</button></header>
-    <div className={`assessment-grid ${editorFocus ? "editor-focus" : ""}`}>
-      <section className="problem-panel panel"><div className="eyebrow">Problem</div><h1>{question.title}</h1><div className="topic-row">{(question.topics || []).map((topic) => <span key={topic}>{topic}</span>)}</div><p className="description">{question.description}</p><div className="assessment-note">Use the assistant for a hint, a code review, or ask it to update the editor. You control every suggested change.</div></section>
-      <section className="editor-panel panel"><div className="editor-toolbar"><span><b>main.{extension}</b></span><span className="editor-tools"><button type="button" onClick={() => onRun(input)} disabled={loading}>Run</button><button type="button" onClick={onRunTests} disabled={loading}>Run tests</button><button type="button" className="toolbar-submit" onClick={() => onSubmit()} disabled={loading}>Submit</button><button type="button" className="expand-button" onClick={() => setEditorFocus((value) => !value)} aria-label="Toggle editor focus">{editorFocus ? "Exit full view" : "Full view"}</button></span></div><div className="editor-wrap"><div className="line-numbers">{Array.from({ length: Math.max(12, code.split("\n").length) }, (_, i) => <span key={i}>{i + 1}</span>)}</div><textarea aria-label="Code editor" spellCheck="false" value={code} onChange={(event) => setCode(event.target.value)} placeholder={`Write your ${language} solution here`} /></div><div className="console"><div className="console-head">Output <span>{runResult?.code === 0 ? "Completed" : runResult ? "Error" : "Ready"}</span></div><textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="Standard input (optional)" aria-label="Standard input" /><pre>{runResult ? (runResult.output || "Program completed with no output.") : "Your result will appear here."}</pre>{runResult && <p className="run-metrics">{runResult.time != null && `Runtime: ${runResult.time}s`}{runResult.memory != null && ` · Memory: ${runResult.memory} KB`}</p>}{testResult && <p className={testResult.passed === testResult.total && testResult.total > 0 ? "test-summary passed" : "test-summary failed"}>{testResult.message || `${testResult.passed}/${testResult.total} database test cases passed`}</p>}</div><div className="editor-actions"><button type="button" className="secondary-button" onClick={() => setAssistantOpen(true)}>Ask AI</button><button type="button" className="secondary-button" onClick={onRunTests} disabled={loading}>Run database tests</button><button type="button" onClick={() => onSubmit()} disabled={loading}>Submit solution</button></div></section>
-    </div>
-    <div className={`assistant-drawer ${assistantOpen ? "is-open" : ""}`}><div className="drawer-backdrop" onClick={() => setAssistantOpen(false)} /><ChatPanel interactions={interactions} onAsk={onAsk} onApplyCode={onApplyCode} loading={loading} onClose={() => setAssistantOpen(false)} /></div>
-    {error && <p className="error">{error}</p>}
-  </main>;
+  useEffect(() => {
+    setInput(localStorage.getItem(`sparbot_input_${assessment._id}`) || "");
+  }, [assessment._id]);
+  useEffect(() => {
+    localStorage.setItem(`sparbot_input_${assessment._id}`, input);
+  }, [assessment._id, input]);
+  return (
+    <main className="assessment-shell">
+      <header className="topbar">
+        <div className="brand">Sparbot</div>
+        <div className="challenge-label">
+          {question.difficulty} challenge · AI step:{" "}
+          {assessment.assistantStage?.replaceAll("_", " ") ||
+            "PROBLEM DESCRIPTION"}
+        </div>
+        <span className="language-select">
+          Language: <b>Java</b>
+        </span>
+        <div className="timer">
+          Time left <b>{time}</b>
+        </div>
+        <button
+          type="button"
+          className="assistant-button"
+          onClick={() => setAssistantOpen(true)}
+        >
+          AI assistant
+        </button>
+        <button
+          type="button"
+          className="exit-button"
+          onClick={() => {
+            if (
+              window.confirm(
+                "Exit and submit your current solution? You cannot continue this assessment afterward.",
+              )
+            )
+              onExit();
+          }}
+          disabled={loading}
+        >
+          Exit & submit
+        </button>
+        <button
+          type="button"
+          className="submit-button"
+          onClick={() => onSubmit()}
+          disabled={loading}
+        >
+          Submit
+        </button>
+      </header>
+      <div className={`assessment-grid ${editorFocus ? "editor-focus" : ""}`}>
+        <section className="problem-panel panel">
+          <div className="eyebrow">Problem</div>
+          <h1>{question.title}</h1>
+          <div className="topic-row">
+            {(question.topics || []).map((topic) => (
+              <span key={topic}>{topic}</span>
+            ))}
+          </div>
+          <p className="description">{question.description}</p>
+          <div className="assessment-note">
+            Complete the assistant steps in order. Generated Java code stays out
+            of the editor until you choose Insert in Editor.
+          </div>
+        </section>
+        <section className="editor-panel panel">
+          <div className="editor-toolbar">
+            <span>
+              <b>Main.java</b>
+            </span>
+            <span className="editor-tools">
+              <button
+                type="button"
+                onClick={() => onRun(input)}
+                disabled={loading}
+              >
+                Run
+              </button>
+              <button type="button" onClick={onRunTests} disabled={loading}>
+                Run tests
+              </button>
+              <button
+                type="button"
+                className="toolbar-submit"
+                onClick={() => onSubmit()}
+                disabled={loading}
+              >
+                Submit
+              </button>
+              <button
+                type="button"
+                className="expand-button"
+                onClick={() => setEditorFocus((value) => !value)}
+                aria-label="Toggle editor focus"
+              >
+                {editorFocus ? "Exit full view" : "Full view"}
+              </button>
+            </span>
+          </div>
+          <div className="editor-wrap">
+            <div className="line-numbers">
+              {Array.from(
+                { length: Math.max(12, code.split("\n").length) },
+                (_, i) => (
+                  <span key={i}>{i + 1}</span>
+                ),
+              )}
+            </div>
+            <textarea
+              aria-label="Code editor"
+              spellCheck="false"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              placeholder="Insert generated Java starter code or write your Java solution here"
+            />
+          </div>
+          <div className="console">
+            <div className="console-head">
+              Output{" "}
+              <span>
+                {runResult?.code === 0
+                  ? "Completed"
+                  : runResult
+                    ? "Error"
+                    : "Ready"}
+              </span>
+            </div>
+            <textarea
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Standard input (optional)"
+              aria-label="Standard input"
+            />
+            <pre>
+              {runResult
+                ? runResult.output || "Program completed with no output."
+                : "Your result will appear here."}
+            </pre>
+            {runResult && (
+              <p className="run-metrics">
+                {runResult.time != null && `Runtime: ${runResult.time}s`}
+                {runResult.memory != null &&
+                  ` · Memory: ${runResult.memory} KB`}
+              </p>
+            )}
+            {testResult && (
+              <p
+                className={
+                  testResult.passed === testResult.total && testResult.total > 0
+                    ? "test-summary passed"
+                    : "test-summary failed"
+                }
+              >
+                {testResult.message ||
+                  `${testResult.passed}/${testResult.total} database test cases passed`}
+              </p>
+            )}
+          </div>
+          <div className="editor-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setAssistantOpen(true)}
+            >
+              Ask AI
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onRunTests}
+              disabled={loading}
+            >
+              Run database tests
+            </button>
+            <button type="button" onClick={() => onSubmit()} disabled={loading}>
+              Submit solution
+            </button>
+          </div>
+        </section>
+      </div>
+      <div className={`assistant-drawer ${assistantOpen ? "is-open" : ""}`}>
+        <div
+          className="drawer-backdrop"
+          onClick={() => setAssistantOpen(false)}
+        />
+        <ChatPanel
+          interactions={interactions}
+          onAsk={onAsk}
+          onApplyCode={onApplyCode}
+          loading={loading}
+          onClose={() => setAssistantOpen(false)}
+        />
+      </div>
+      {error && <p className="error">{error}</p>}
+    </main>
+  );
 }
