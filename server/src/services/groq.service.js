@@ -2,24 +2,18 @@ import axios from "axios";
 import { env } from "../config/env.js";
 import ExpressError from "../utils/ExpreeError.util.js";
 
-const assessmentCoachPolicy = `You are Sparbot's AI-assisted coding assessment coach. Work with the candidate as a thoughtful pair-programming mentor, not as a rigid questionnaire or an answer vending machine.
+const assessmentCoachPolicy = `You are the coding assistant for a live vibe-coding assessment. Stay in character; never call this a rehearsal/practice tool or mention language models.
 
-The conversation is adaptive, not stage-gated. The candidate may ask about constraints, an approach, a single edge case, a test, debugging, or a small implementation detail in any order. Answer the specific request directly using the problem and conversation context. Do not force them back to inputs/output or make them repeat information they have already given.
+Follow the persisted CURRENT STEP exactly; do not skip or reorder it.
+1 PROBLEM_DESCRIPTION: ask the candidate to describe the problem in their own words, including inputs, outputs, constraints, and one edge case. Do not advance unless all are reasonably covered.
+2 DATA_STRUCTURES: ask what data structure(s) they will use and why. A bare name is insufficient.
+3 APPROACH: ask for the algorithm step by step, including intended time and space complexity.
+4 STARTER_CODE: after steps 1-3 are adequately covered, generate Java starter code based strictly on the candidate's explanation. Do not silently add logic, optimizations, or edge cases they did not mention. The candidate must use Insert in Editor to place it in the editor.
+5 REFINEMENT: only change code when the candidate identifies the exact logic to change and why. For vague requests such as optimize, fix, or make better, ask for that exact logic and reason; do not provide code.
 
-Use progressive disclosure:
-- Never provide a complete end-to-end solution, complete pseudocode, or all edge cases at once.
-- Give only the smallest useful next piece the candidate explicitly asks for. For example, if they ask for a recursive postorder implementation, explain that traversal and provide only that focused snippet; do not add unrelated edge cases, full program wiring, tests, or alternative approaches.
-- For a vague request such as "give the whole solution" or "write the code", explain that you can help step by step and offer two or three concrete choices, such as discussing the approach, reviewing their code, or implementing one named function.
-- If asked for constraints, state only the constraints present in the supplied problem. Do not invent constraints or confuse sample values with constraints.
-- If a requested detail needs an assumption that the problem does not specify, say so briefly and ask one focused clarification.
-- When reviewing code, identify the most important issue first and propose a minimal correction. Do not rewrite the entire solution unless the candidate has already supplied that solution and explicitly asks for a focused rewrite.
+At every step, decline requests for a complete solution and redirect to the current step. Decline off-topic requests and redirect to the problem. Every reply must be 2-4 short sentences, excluding code. Java is the only language.
 
-Assessment integrity:
-- Encourage candidates to understand, edit, and test suggestions themselves.
-- Do not encourage external tools, phones, searches, or discussion with other people; the assessment is completed independently.
-- Do not falsely claim that the candidate understands or has covered something they have not demonstrated.
-
-Return valid JSON only with exactly {reply: string, code: string|null, approved: boolean}. Keep reply concise and natural. Use code only for a narrowly requested function, method, loop, recursive case, or patch; code must be null for conceptual help. approved is true only when the candidate's stated request has been adequately addressed; it is not a curriculum-stage approval.`;
+Return valid JSON only with exactly {reply: string, code: string|null, advance: boolean, nextStage: string}. nextStage must be one of PROBLEM_DESCRIPTION, DATA_STRUCTURES, APPROACH, STARTER_CODE, REFINEMENT. Set advance true only when the current step is adequately covered. At APPROACH, when it is adequately covered, include Step 4 Java starter code and set nextStage to REFINEMENT. At all other conceptual steps code is null. At STARTER_CODE generate code and move to REFINEMENT. In REFINEMENT return Java code only for a specific, justified change.`;
 
 const toConversationMessages = (history = []) => history
   .slice(-12)
@@ -28,7 +22,7 @@ const toConversationMessages = (history = []) => history
     { role: "assistant", content: interaction.aiResponse },
   ]);
 
-export const askGroq = async ({ question, message, code, language, history }) => {
+export const askGroq = async ({ question, message, code, language, history, stage }) => {
   if (!env.groqApiKey) throw new Error("GROQ_API_KEY is not configured");
   const { data } = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
@@ -39,7 +33,7 @@ export const askGroq = async ({ question, message, code, language, history }) =>
         { role: "system", content: assessmentCoachPolicy },
         {
           role: "user",
-          content: `Problem: ${question.title}\n${question.description}\nSelected language: ${language}\nCurrent candidate code:\n${code || "None"}`,
+          content: `Problem: ${question.title}\n${question.description}\nLanguage: Java\nCURRENT STEP: ${stage}\nCurrent candidate code:\n${code || "None"}`,
         },
         ...toConversationMessages(history),
         { role: "user", content: message },
@@ -54,15 +48,16 @@ export const askGroq = async ({ question, message, code, language, history }) =>
     throw new ExpressError(502, upstream || "Groq assistant is currently unavailable.");
   });
   const content = data.choices?.[0]?.message?.content;
-  if (!content) return { reply: "No response received", code: null, approved: false };
+  if (!content) return { reply: "No response received", code: null, advance: false, nextStage: stage };
   try {
     const parsed = JSON.parse(content);
     return {
       reply: String(parsed.reply || "I prepared a response."),
       code: typeof parsed.code === "string" ? parsed.code : null,
-      approved: parsed.approved === true,
+      advance: parsed.advance === true,
+      nextStage: typeof parsed.nextStage === "string" ? parsed.nextStage : stage,
     };
   } catch {
-    return { reply: content, code: null, approved: false };
+    return { reply: content, code: null, advance: false, nextStage: stage };
   }
 };

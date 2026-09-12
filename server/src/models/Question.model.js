@@ -79,7 +79,7 @@ const questionSchema = new mongoose.Schema(
 
       allowedLanguages: {
         type: [String],
-        default: ["java", "cpp", "python"],
+        default: ["java"],
       },
     },
   },

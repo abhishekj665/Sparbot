@@ -5,10 +5,7 @@ export default function AssessmentSetup({ onStart, loading }) {
   return (
     <section className="setup-card">
       <h2>Start your assessment</h2>
-      <p>
-        Choose a difficulty. Select your language in the coding workspace
-        before running or submitting code.
-      </p>
+      <p>Choose a difficulty. This assessment uses Java.</p>
       <label>
         Difficulty
         <select
@@ -20,7 +17,11 @@ export default function AssessmentSetup({ onStart, loading }) {
           <option>Hard</option>
         </select>
       </label>
-      <button type="button" disabled={loading} onClick={() => onStart({ difficulty })}>
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => onStart({ difficulty })}
+      >
         Start assessment
       </button>
     </section>

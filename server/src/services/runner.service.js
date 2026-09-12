@@ -2,14 +2,10 @@ import axios from "axios";
 import { env } from "../config/env.js";
 import ExpressError from "../utils/ExpreeError.util.js";
 
-const pistonRuntimes = { python: { language: "python", version: "3.10.0", filename: "main.py" }, cpp: { language: "c++", version: "10.2.0", filename: "main.cpp" }, java: { language: "java", version: "15.0.2", filename: "Main.java" } };
-const judge0Languages = { python: 71, cpp: 54, java: 62 };
-const endpoint = (path = "") => `${env.runnerUrl.replace(/\/$/, "")}${path}`;
+const pistonRuntimes = { java: { language: "java", version: "15.0.2", filename: "Main.java" } };
 const headers = () => {
   if (!env.runnerApiKey) return undefined;
-  return env.runnerProvider === "piston"
-    ? { Authorization: `Bearer ${env.runnerApiKey}` }
-    : { "X-Auth-Token": env.runnerApiKey };
+  return { Authorization: `Bearer ${env.runnerApiKey}` };
 };
 
 const MAX_ACTIVE_RUNS = 2;
@@ -32,27 +28,13 @@ const withRunnerSlot = async (work) => {
 
 const unavailable = (error) => {
   if (error.response?.status === 401 || error.response?.status === 403) throw new ExpressError(502, "The code runner rejected this request. Check RUNNER_API_KEY or runner access rules.");
-  if (error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") throw new ExpressError(503, "Code runner is offline. Start the free Judge0 CE service, then try again.");
+  if (error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") throw new ExpressError(503, "Code runner is offline. Start the Piston service, then try again.");
   throw new ExpressError(502, error.response?.data?.message || "Code runner is unavailable. Try again shortly.");
-};
-
-const runWithJudge0 = async ({ code, language, input }) => {
-  const languageId = judge0Languages[language];
-  if (!languageId) throw new ExpressError(400, "Choose java, python, or cpp");
-  try {
-    const { data } = await axios.post(`${endpoint("/submissions")}?base64_encoded=false&wait=true`, { source_code: code, language_id: languageId, stdin: input, cpu_time_limit: 2, cpu_extra_time: 0.5, wall_time_limit: 4, memory_limit: 256000, stack_limit: 32768, max_processes_and_or_threads: 32, max_file_size: 256, enable_network: false }, { timeout: 12000, headers: headers() });
-    const status = data.status || {};
-    if (status.id === 13) {
-      throw new ExpressError(503, data.message || "Judge0 could not initialize its execution sandbox. Check the Docker host cgroup support.");
-    }
-    const stderr = data.compile_output || data.stderr || data.message || "";
-    return { stdout: data.stdout || "", stderr, output: data.stdout || stderr, code: status.id === 3 ? 0 : data.exit_code ?? 1, signal: null, timedOut: status.id === 5 || /time limit/i.test(status.description || ""), time: data.time ?? null, memory: data.memory ?? null };
-  } catch (error) { return unavailable(error); }
 };
 
 const runWithPiston = async ({ code, language, input }) => {
   const runtime = pistonRuntimes[language];
-  if (!runtime) throw new ExpressError(400, "Choose java, python, or cpp");
+  if (!runtime) throw new ExpressError(400, "Java is the only supported language");
   try {
     const { data } = await axios.post(env.runnerUrl, {
       language: runtime.language,
@@ -78,8 +60,7 @@ const asCase = (item) => {
   return input !== undefined && expected !== undefined ? { input: String(input), expected: String(expected) } : null;
 };
 export const getTestCases = (question) => {
-  // `test` is a Python checker for the imported LeetCode dataset. Standard
-  // input/output cases are stored separately in `inputOutput`.
+  // Standard input/output cases may be stored in either test or inputOutput.
   const raw = Array.isArray(question.test) || typeof question.test === "object"
     ? question.test
     : question.inputOutput ?? [];
@@ -163,64 +144,14 @@ const javaStringFunctionCase = async ({ code, testCase }) => {
   return harness ? runProgram({ code: harness, language: "java" }) : null;
 };
 
-const functionTestSource = (question) => typeof question.test === "string" && /def\s+check\s*\(\s*candidate\s*\)/.test(question.test)
-  ? question.test
-  : null;
-
-export const supportedLanguagesForQuestion = () => ["python", "java", "cpp"];
-
-const instrumentPythonAssertions = (source) => source.replace(
-  /^(\s*)assert\s+(.+)$/gm,
-  (_, indent, expression) => `${indent}try:\n${indent}    assert ${expression}\n${indent}    __sparbot_record(True)\n${indent}except Exception:\n${indent}    __sparbot_record(False)`,
-);
-
-const runPythonFunctionTests = async ({ code, question }) => {
-  const source = functionTestSource(question);
-  if (!source) return null;
-  const entryPoint = question.entryPoint || "Solution()";
-  const harness = `from typing import *
-class ListNode:
-    def __init__(self, val=0, next=None):
-        self.val, self.next = val, next
-__sparbot_passed = 0
-__sparbot_total = 0
-def __sparbot_record(passed):
-    global __sparbot_passed, __sparbot_total
-    __sparbot_total += 1
-    __sparbot_passed += int(bool(passed))
-${code}
-${instrumentPythonAssertions(source)}
-try:
-    check(${entryPoint})
-    print(f"__SPARBOT_RESULT__:{__sparbot_passed}:{__sparbot_total}")
-except Exception as error:
-    print(f"__SPARBOT_ERROR__:{type(error).__name__}: {error}")`;
-  const result = await runProgram({ code: harness, language: "python" });
-  const match = result.stdout.match(/__SPARBOT_RESULT__:(\d+):(\d+)/);
-  const error = result.stdout.match(/__SPARBOT_ERROR__:(.+)/)?.[1] || result.stderr;
-  if (!match) {
-    return {
-      available: true, total: 0, passed: 0, tests: [],
-      message: error || "The submitted code could not be evaluated against this question's test suite.",
-    };
-  }
-  const passed = Number(match[1]);
-  const total = Number(match[2]);
-  return {
-    available: true,
-    total,
-    passed,
-    tests: [{ passed: passed === total, timedOut: result.timedOut, time: result.time, memory: result.memory }],
-    message: `${passed}/${total} hidden database test cases passed.`,
-  };
-};
+export const supportedLanguagesForQuestion = () => ["java"];
 
 export const runProgram = async ({ code, language, input = "" }) => {
   if (!code?.trim()) throw new ExpressError(400, "Code is required");
   if (code.length > 50_000) throw new ExpressError(400, "Code must be under 50 KB");
-  if (!env.runnerUrl) throw new ExpressError(503, "Set RUNNER_API_URL to your Judge0 CE service.");
+  if (!env.runnerUrl) throw new ExpressError(503, "Set RUNNER_API_URL to your Piston service.");
   const request = { code, language, input: String(input).slice(0, 10_000) };
-  return withRunnerSlot(() => env.runnerProvider === "piston" ? runWithPiston(request) : runWithJudge0(request));
+  return withRunnerSlot(() => runWithPiston(request));
 };
 export const runAgainstTests = async ({ code, language, question }) => {
   const cases = getTestCases(question);
@@ -234,15 +165,12 @@ export const runAgainstTests = async ({ code, language, question }) => {
       message: "Java LeetCode submissions may omit main(), but they must include the public problem method (for example, public int minTransfers(...)). This submission contains only private helper methods.",
     };
   }
-  if (!cases.length && functionTestSource(question) && language === "python") {
-    return runPythonFunctionTests({ code, question });
-  }
   if (!cases.length) return {
     available: false,
     total: 0,
     passed: 0,
     tests: [],
-    message: "This question needs language-neutral stdin/stdout test cases before it can be evaluated in Java or C++.",
+    message: "This question needs Java-compatible stdin/stdout test cases before it can be evaluated.",
   };
   const tests = [];
   for (const testCase of cases) {

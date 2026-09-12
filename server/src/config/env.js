@@ -11,8 +11,8 @@ export const env = {
   groqApiKey: process.env.GROQ_API_KEY,
   groqModel: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
   geminiApiKey: process.env.GEMINI_API_KEY,
-  runnerProvider: process.env.RUNNER_PROVIDER || "judge0",
-  runnerUrl: process.env.RUNNER_API_URL || "http://localhost:2358",
+  runnerProvider: "piston",
+  runnerUrl: process.env.RUNNER_API_URL || "http://localhost:2000/api/v2/execute",
   runnerApiKey: process.env.RUNNER_API_KEY || "",
   clientUrl: process.env.CLIENT_URL,
 };
