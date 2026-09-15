@@ -803,6 +803,13 @@ label {
 .inline-failure b {
   color: #9f3131;
 }
+.inline-failure.test-output-passed {
+  border-left-color: #2c9b62;
+  background: #f5fcf8;
+}
+.inline-failure.test-output-passed b {
+  color: #247a4b;
+}
 .inline-failure code {
   color: #34445a;
   font-family: ui-monospace, monospace;

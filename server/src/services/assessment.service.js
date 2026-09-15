@@ -15,18 +15,44 @@ const languages = ["java"];
 const codeHash = (code) => createHash("sha256").update(String(code)).digest("hex");
 const isJavaFunctionSubmission = (code, question, language) => language === "java"
   && !/public\s+static\s+void\s+main\s*\(/.test(code)
-  && /\bclass\s+Solution\b/.test(code)
+  && (/\bclass\s+Solution\b/.test(code)
+    || /\bpublic\s+(?:static\s+)?[A-Za-z_]\w*(?:\s*<[^>]+>)?(?:\s*\[\])?\s+[A-Za-z_]\w*\s*\(/.test(code))
   && getTestCases(question).length > 0;
 const assistantStages = ["PROBLEM_DESCRIPTION", "DATA_STRUCTURES", "APPROACH", "STARTER_CODE", "REFINEMENT"];
 const processScoreFor = (stage) => Math.round((Math.max(0, assistantStages.indexOf(stage)) / (assistantStages.length - 1)) * 100);
+const edgeCaseInput = (input) => {
+  const value = String(input || "").trim();
+  // Recognise common boundary inputs used by the assessment data: empty or
+  // singleton structures, null, zero, negative values, and empty strings.
+  if (/\bnull\b/i.test(value) || /(?:^|[=,\s])(?:0|-\d+)(?=$|[,\]\s])/m.test(value)) return true;
+  if (/=\s*""/.test(value) || /\[\s*\]/.test(value)) return true;
+  const arrays = [...value.matchAll(/\[([^\[\]]*)\]/g)];
+  return arrays.some((match) => match[1].trim() && match[1].split(",").length === 1);
+};
+const testScoreFor = (testResults, chooseCases) => {
+  const allCases = testResults.tests || [];
+  const cases = allCases.filter(chooseCases);
+  const scoringCases = cases.length ? cases : allCases;
+  if (!scoringCases.length) return 0;
+  return Math.round((scoringCases.filter((test) => test.passed).length / scoringCases.length) * 100);
+};
+const collaborationScoreFor = (stage, interactions) => {
+  const guidedProgress = processScoreFor(stage) * 0.7;
+  // Three focused exchanges are sufficient. More messages do not add points,
+  // which rewards efficient collaboration rather than message volume.
+  const focusedMessages = interactions.filter((item) => String(item.userMessage || "").trim().length >= 12).length;
+  const communication = (Math.min(focusedMessages, 3) / 3) * 30;
+  return Math.round(guidedProgress + communication);
+};
 const visibleTestResults = (results) => {
-  const firstFailure = results.tests?.find((test) => !test.passed);
   return {
     available: results.available,
     passed: results.passed,
     total: results.total,
     message: results.message,
-    tests: firstFailure ? [firstFailure] : [],
+    // Return each case's actual output so the UI can show exactly what the
+    // Java program printed, including successful cases.
+    tests: results.tests || [],
   };
 };
 const withoutJavaComments = (code) => String(code || "")
@@ -152,8 +178,10 @@ export const createAiInteraction = async (
   const nextStage = aiResult.advance && aiResult.nextStage === stageTransitions[currentStage]
     ? aiResult.nextStage
     : currentStage;
-  const canSuggestCode = currentStage === "STARTER_CODE" || currentStage === "REFINEMENT"
-    || (currentStage === "APPROACH" && nextStage === "REFINEMENT");
+  // The assistant may return a complete solution in response to an explicit
+  // code request at any step. Never discard it: the client must be able to
+  // offer its Insert in Editor action whenever code is present.
+  const canSuggestCode = typeof aiResult.code === "string" && aiResult.code.trim().length > 0;
   assessment.assistantStage = nextStage;
   await assessment.save();
   const interaction = await AIInteraction.create({
@@ -177,10 +205,17 @@ export const executeAssessment = async (userId, assessmentId, { code, language, 
   const functionTests = functionSubmission
     ? await runAgainstTests({ code, language: selectedLanguage, question: assessment.questionId })
     : null;
+  const functionOutput = functionTests?.tests?.map((test, index) => [
+    `Test case ${index + 1}`,
+    `Input: ${test.input || "(empty)"}`,
+    `Expected: ${test.expected}`,
+    `Output: ${test.output || test.stderr || "(no output)"}`,
+  ].join("\n")).join("\n\n");
   const result = functionTests
     ? {
       code: !functionTests.available || functionTests.tests.some((test) => test.stderr) ? 1 : 0,
-      output: functionTests.message || `${functionTests.passed}/${functionTests.total} function test cases passed.`,
+      output: functionTests.message
+        || `${functionTests.passed}/${functionTests.total} function test cases passed.\n\n${functionOutput}`,
       stdout: "",
       stderr: functionTests.tests.find((test) => test.stderr)?.stderr || (functionTests.available ? "" : functionTests.message),
       timedOut: functionTests.tests.some((test) => test.timedOut),
@@ -200,10 +235,25 @@ export const executeAssessmentTests = async (userId, assessmentId, { code, langu
   if (assessment.status !== "IN_PROGRESS") throw new ExpressError(400, "Assessment is no longer active");
   const selectedLanguage = language || assessment.language;
   if (!languages.includes(selectedLanguage)) throw new ExpressError(400, "Java is the only supported language");
-  if (assessment.lastSuccessfulRun?.codeHash !== codeHash(code) || assessment.lastSuccessfulRun?.language !== selectedLanguage)
-    throw new ExpressError(400, "Run the current code successfully before checking test cases.");
   const result = await runAgainstTests({ code, language: selectedLanguage, question: assessment.questionId });
   return successResponse({ result: visibleTestResults(result) }, "Database test cases executed");
+};
+
+// Exiting is deliberately separate from submission: it ends the attempt without
+// evaluating it, even when the browser timer has just reached zero.
+export const exitAssessment = async (userId, assessmentId, { code = "", language } = {}) => {
+  const assessment = await getExam(assessmentId, userId, { allowExpired: true });
+  // An assessment can be marked EXPIRED when the page is restored after its
+  // deadline. It should still be possible to leave that stale page cleanly.
+  if (!["IN_PROGRESS", "EXPIRED"].includes(assessment.status))
+    throw new ExpressError(400, "Assessment is no longer active");
+  if (language && !languages.includes(language))
+    throw new ExpressError(400, "Java is the only supported language");
+  assessment.status = "EXITED";
+  assessment.submittedAt = new Date();
+  assessment.finalCode = String(code || "");
+  await assessment.save();
+  return successResponse({ assessment }, "Assessment exited");
 };
 
 export const completeAssessment = async (
@@ -218,7 +268,9 @@ export const completeAssessment = async (
   // The browser timer can reach this request a few milliseconds after expiresAt.
   // Let that single automatic submission finish instead of discarding the draft.
   const assessment = await getExam(assessmentId, userId, { allowExpired: isAutoSubmit });
-  if (assessment.status !== "IN_PROGRESS")
+  // A restored assessment may already be marked EXPIRED. Its timer-triggered
+  // submission is still valid and preserves the candidate's saved draft.
+  if (assessment.status !== "IN_PROGRESS" && !(isAutoSubmit && assessment.status === "EXPIRED"))
     throw new ExpressError(400, "Assessment is no longer active");
   const submittedAt = new Date();
   const interactions = await AIInteraction.find({ examId: assessment.id }).sort(
@@ -229,8 +281,6 @@ export const completeAssessment = async (
     (submittedAt - assessment.startedAt) / 60000,
   );
   const selectedLanguage = language || assessment.language;
-  if (!isAutoSubmit && code?.trim() && (assessment.lastSuccessfulRun?.codeHash !== codeHash(code) || assessment.lastSuccessfulRun?.language !== selectedLanguage))
-    throw new ExpressError(400, "Run the current code successfully before submitting. Hidden test cases run during submission.");
   const testResults = code?.trim()
     ? await runAgainstTests({ code, language: selectedLanguage, question: assessment.questionId })
     : { available: false, total: 0, passed: 0, tests: [], message: "No code was submitted, so no test cases were run." };

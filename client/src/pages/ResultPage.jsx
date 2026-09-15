@@ -73,6 +73,19 @@ export default function ResultPage({ evaluation, code, onRestart }) {
           </div>
         </section>
       )}
+      {testResults?.tests?.length > 0 && (
+        <section className="test-results" aria-label="Test case output">
+          <h2>Test case output</h2>
+          {testResults.tests.map((test, index) => (
+            <div className={`test-case ${test.passed ? "passed" : ""}`} key={`${test.input}-${index}`}>
+              <b>Test case {index + 1}: {test.passed ? "Passed" : "Failed"}</b>
+              <span>Input: <code>{test.input || "(empty)"}</code></span>
+              <span>Expected: <code>{test.expected}</code></span>
+              <span>Your output: <code>{test.output || test.stderr || "(no output)"}</code></span>
+            </div>
+          ))}
+        </section>
+      )}
       <section className="result-details">
         <span>
           Language <b>Java</b>

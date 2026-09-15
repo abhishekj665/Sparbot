@@ -39,15 +39,15 @@ export default function ChatPanel({
           approach.
         </span>
         <span>
-          Once those steps are complete, insert the generated Java starter code
-          and refine it.
+          Once those steps are complete, insert the generated Java code, edit it,
+          and run the test cases. Do not write a main method.
         </span>
       </div>
       <div className="chat">
         {interactions.length === 0 && (
           <div className="empty-chat">
-            Please describe the problem in your own words, including inputs,
-            outputs, constraints, and one edge case.
+            Describe the problem in your own words. After the guided steps, ask
+            the assistant to complete the Java code when you are ready.
           </div>
         )}
         {interactions.map((item, index) => (
@@ -70,7 +70,7 @@ export default function ChatPanel({
         <textarea
           value={message}
           onChange={(event) => setMessage(event.target.value)}
-          placeholder="Describe the current assessment step..."
+          placeholder="Describe the current step, or ask to complete/fix the code..."
         />
         <button disabled={loading || !message.trim()}>{loading ? "Thinking..." : "Send"}</button>
       </form>

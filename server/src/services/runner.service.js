@@ -44,12 +44,25 @@ const runWithPiston = async ({ code, language, input }) => {
       compile_timeout: 8000,
       compile_cpu_time: 8000,
       compile_memory_limit: 536870912,
-      run_timeout: 4000,
-      run_cpu_time: 2000,
+      run_timeout: 8000,
+      run_cpu_time: 8000,
       run_memory_limit: 268435456,
     }, { timeout: 15000, headers: headers() });
-    const run = data.run || {};
-    return { stdout: run.stdout || "", stderr: run.stderr || "", output: run.output || run.stdout || run.stderr || "", code: run.code, signal: run.signal, timedOut: run.signal === "SIGKILL" || /timed? out/i.test(run.stderr || ""), time: run.cpu_time ?? null, memory: run.memory ?? null };
+    // Piston returns compilation failures under `compile`, with no `run`
+    // object. Preserve that output so the editor and test API never show a
+    // misleading blank result for a Java compiler error.
+    const execution = data.run || data.compile || {};
+    const stderr = execution.stderr || data.compile?.stderr || "";
+    return {
+      stdout: execution.stdout || "",
+      stderr,
+      output: execution.output || execution.stdout || stderr || "",
+      code: execution.code,
+      signal: execution.signal,
+      timedOut: execution.signal === "SIGKILL" || /timed? out/i.test(stderr),
+      time: execution.cpu_time ?? null,
+      memory: execution.memory ?? null,
+    };
   } catch (error) { return unavailable(error); }
 };
 
@@ -78,9 +91,17 @@ const normalizeExpected = (value) => {
 };
 
 const cleanJavaSource = (source) => String(source || "")
-  .replace(/^\s*```(?:java|kotlin)?\s*$/gim, "")
-  .replace(/^\s*```\s*$/gm, "")
+  .replace(/^\s*```[A-Za-z0-9_-]*\s*$/gm, "")
   .trim();
+
+const wrapBareJavaSolution = (source) => {
+  if (/(?:public\s+)?class\s+Solution\b/.test(source)) return source;
+  const imports = [...source.matchAll(/^\s*import\s+[^;]+;\s*$/gm)];
+  if (!imports.length) return `class Solution {\n${source}\n}`;
+  const lastImport = imports.at(-1);
+  const afterImports = lastImport.index + lastImport[0].length;
+  return `${source.slice(0, afterImports)}\nclass Solution {\n${source.slice(afterImports)}\n}`;
+};
 
 const matrixLiteralForJava = (value) => {
   if (!/^\s*\[\s*\[/.test(value)) return null;
@@ -91,13 +112,17 @@ const matrixLiteralForJava = (value) => {
   } catch { return null; }
 };
 
-const withJavaTestMain = (source, body) => {
+const withJavaTestMain = (source, body, helpers = "") => {
   const main = /public\s+static\s+void\s+main\s*\(\s*String\s*\[\]\s+\w+\s*\)\s*\{/.exec(source);
   if (!main) {
     const solutionSource = source.replace(/\bpublic\s+class\s+Solution\b/, "class Solution");
-    return /\bclass\s+Solution\b/.test(solutionSource)
-      ? `${solutionSource}\npublic class Main { public static void main(String[] args) { ${body} } }`
-      : null;
+    if (!/\bclass\s+Solution\b/.test(solutionSource)) return null;
+    // Piston's Java runtime chooses the first class in the file to launch.
+    // Keep imports first (Java requires that), then emit our generated Main
+    // before Solution so a user never has to provide a main method.
+    const importBlock = /^(?:\s*import\s+[^;]+;\s*)*/.exec(solutionSource)?.[0] || "";
+    const solutionBody = solutionSource.slice(importBlock.length);
+    return `${importBlock}\npublic class Main { ${helpers} public static void main(String[] args) { ${body} } }\n${solutionBody}`;
   }
   let depth = 1;
   let index = main.index + main[0].length;
@@ -106,7 +131,9 @@ const withJavaTestMain = (source, body) => {
     if (source[index] === "{") depth += 1;
     if (source[index] === "}") depth -= 1;
   }
-  return depth === 0 ? `${source.slice(0, bodyStart)} ${body} ${source.slice(index - 1)}` : null;
+  return depth === 0
+    ? `${source.slice(0, main.index)} ${helpers} ${source.slice(main.index, bodyStart)} ${body} ${source.slice(index - 1)}`
+    : null;
 };
 
 // Legacy imported tests sometimes look like `mat = [[...]], target = [[...]]`.
@@ -175,11 +202,49 @@ const javaLiteralForType = (type, value) => {
     try { const values = JSON.parse(value); return Array.isArray(values) && values.every((item) => typeof item === "string") ? `new String[]{${values.map(JSON.stringify).join(",")}}` : null; } catch { return null; }
   }
   if (normalizedType === "int[][]") return matrixLiteralForJava(value) ? `new int[][]${matrixLiteralForJava(value)}` : null;
+  if (normalizedType === "TreeNode") {
+    if (/^\s*null\s*$/i.test(value)) return "null";
+    try {
+      const values = JSON.parse(value);
+      if (!Array.isArray(values) || !values.every((item) => item === null || Number.isInteger(item))) return null;
+      return `treeFromLevelOrder(new Integer[]{${values.map((item) => item === null ? "null" : item).join(",")}})`;
+    } catch { return null; }
+  }
   return null;
 };
 
+const treeNodeDefinition = `class TreeNode {
+  int val;
+  TreeNode left;
+  TreeNode right;
+  TreeNode(int val) { this.val = val; }
+}`;
+
+const treeBuilder = `private static TreeNode treeFromLevelOrder(Integer[] values) {
+  if (values.length == 0 || values[0] == null) return null;
+  TreeNode root = new TreeNode(values[0]);
+  java.util.Queue<TreeNode> queue = new java.util.ArrayDeque<>();
+  queue.add(root);
+  int index = 1;
+  while (!queue.isEmpty() && index < values.length) {
+    TreeNode node = queue.remove();
+    if (index < values.length && values[index] != null) {
+      node.left = new TreeNode(values[index]);
+      queue.add(node.left);
+    }
+    index++;
+    if (index < values.length && values[index] != null) {
+      node.right = new TreeNode(values[index]);
+      queue.add(node.right);
+    }
+    index++;
+  }
+  return root;
+}`;
+
 const javaLeetCodeFunctionCase = async ({ code, testCase }) => {
   if (/public\s+static\s+void\s+main\s*\(/.test(code)) return null;
+  code = wrapBareJavaSolution(code);
   const classMatch = /(?:public\s+)?class\s+Solution\b/.exec(code);
   const methodMatch = /public\s+(?:static\s+)?([A-Za-z_]\w*(?:\s*<[^>]+>)?(?:\s*\[\])?)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)/.exec(code);
   const inputs = splitNamedArguments(testCase.input);
@@ -194,6 +259,12 @@ const javaLeetCodeFunctionCase = async ({ code, testCase }) => {
     return literal === null ? null : `${parameter.type} ${parameter.name} = ${literal};`;
   });
   if (declarations.some((declaration) => declaration === null)) return null;
+  const usesTreeNode = parameters.some((parameter) => parameter.type.replace(/\s+/g, "") === "TreeNode");
+  // LeetCode supplies TreeNode implicitly. The editor source normally does
+  // not, so add the compatible definition only to this temporary test file.
+  const sourceWithTreeNode = usesTreeNode && !/\bclass\s+TreeNode\b/.test(code)
+    ? `${code}\n${treeNodeDefinition}`
+    : code;
   const invocation = /public\s+static\s+/.test(methodMatch[0])
     ? `Solution.${methodMatch[2]}(${parameters.map((parameter) => parameter.name).join(", ")})`
     : `new Solution().${methodMatch[2]}(${parameters.map((parameter) => parameter.name).join(", ")})`;
@@ -203,7 +274,11 @@ const javaLeetCodeFunctionCase = async ({ code, testCase }) => {
     : returnType.endsWith("[]")
       ? `java.util.Arrays.toString(${invocation})`
       : invocation;
-  const harness = withJavaTestMain(code, `${declarations.join(" ")} System.out.print(${printableResult});`);
+  const harness = withJavaTestMain(
+    sourceWithTreeNode,
+    `${declarations.join(" ")} System.out.print(${printableResult});`,
+    usesTreeNode ? treeBuilder : "",
+  );
   return harness ? runProgram({ code: harness, language: "java" }) : null;
 };
 
@@ -243,7 +318,7 @@ export const runAgainstTests = async ({ code, language, question }) => {
       ? await javaLeetCodeFunctionCase({ code, testCase }) || await javaMatrixFunctionCase({ code, testCase }) || await javaStringFunctionCase({ code, testCase })
       : null;
     const result = adapted || await runProgram({ code, language, input: testCase.input });
-    tests.push({ input: testCase.input, expected: testCase.expected, output: result.output, passed: result.code === 0 && normalizeExpected(result.stdout) === normalizeExpected(testCase.expected), stderr: result.stderr, timedOut: result.timedOut, time: result.time, memory: result.memory });
+    tests.push({ input: testCase.input, expected: testCase.expected, output: result.output, stdout: result.stdout, passed: result.code === 0 && normalizeExpected(result.stdout) === normalizeExpected(testCase.expected), stderr: result.stderr, timedOut: result.timedOut, time: result.time, memory: result.memory });
   }
   return { available: true, total: tests.length, passed: tests.filter((test) => test.passed).length, tests };
 };

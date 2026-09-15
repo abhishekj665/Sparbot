@@ -31,7 +31,7 @@ const examSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["IN_PROGRESS", "SUBMITTED", "EXPIRED"],
+      enum: ["IN_PROGRESS", "SUBMITTED", "EXPIRED", "EXITED"],
       default: "IN_PROGRESS",
     },
 
@@ -68,6 +68,11 @@ const examSchema = new mongoose.Schema(
     },
 
     aiScore: {
+      type: Number,
+      default: 0,
+    },
+
+    edgeCaseScore: {
       type: Number,
       default: 0,
     },
