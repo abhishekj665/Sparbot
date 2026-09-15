@@ -3,6 +3,7 @@ import { setToken } from "../services/api";
 import { login, register } from "../services/auth.service";
 import {
   askAssistant,
+  exitAssessment,
   getAssessment,
   runCode,
   runTests,
@@ -148,6 +149,37 @@ export function useAssessmentSession() {
       );
     }
   };
+  const exit = async () => {
+    if (!assessment || loading) return;
+    const exitedAssessment = assessment;
+    setError("");
+    setLoadingMessage("Exiting assessment...");
+    setLoading(true);
+    try {
+      await exitAssessment(exitedAssessment._id, { code, language });
+    } catch (err) {
+      const problem = err.response?.data?.message || err.message || "";
+      // The timeout may have submitted in the moment between confirmation and
+      // this request. In that case, leaving the stale browser page is correct.
+      if (!/assessment is no longer active/i.test(problem)) {
+        setError(problem || "Could not exit the assessment. Please try again.");
+        notify(problem || "Could not exit the assessment. Please try again.");
+        return;
+      }
+    } finally {
+      setLoading(false);
+    }
+      localStorage.removeItem("sparbot_active_assessment");
+      localStorage.removeItem(`sparbot_draft_${exitedAssessment._id}`);
+      localStorage.removeItem(`sparbot_input_${exitedAssessment._id}`);
+      setAssessment(null);
+      setQuestion(null);
+      setCode("");
+      setInteractions([]);
+      setRunResult(null);
+      setTestResult(null);
+      notify("Assessment exited. You can start a new one.", "success");
+  };
   const ask = async (message) => {
     const data = await request(
       () =>
@@ -173,6 +205,13 @@ export function useAssessmentSession() {
         },
       ]);
     }
+  };
+  const applySuggestedCode = (suggestedCode) => {
+    if (!suggestedCode?.trim()) return;
+    setCode(suggestedCode);
+    setRunResult(null);
+    setTestResult(null);
+    notify("AI code inserted. Run the test cases to verify it.", "success");
   };
   const submit = async (autoSubmit = false) => {
     if (!assessment || evaluation || loading) return;
@@ -225,7 +264,9 @@ export function useAssessmentSession() {
     start,
     execute,
     executeTests,
+    exit,
     ask,
+    applySuggestedCode,
     submit,
     signOut,
     restart,

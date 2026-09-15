@@ -58,14 +58,14 @@ export default function AssessmentPage({
           onClick={() => {
             if (
               window.confirm(
-                "Exit and submit your current solution? You cannot continue this assessment afterward.",
+                "Exit this assessment without submitting it? You cannot continue this assessment afterward.",
               )
             )
               onExit();
           }}
           disabled={loading}
         >
-          Exit & submit
+          Exit assessment
         </button>
         <button
           type="button"
@@ -87,14 +87,14 @@ export default function AssessmentPage({
           </div>
           <p className="description">{question.description}</p>
           <div className="assessment-note">
-            Complete the assistant steps in order. Generated Java code stays out
-            of the editor until you choose Insert in Editor.
+            Complete the assistant steps in order. The assistant can generate a
+            full Java solution; choose Insert in Editor to edit and test it.
           </div>
         </section>
         <section className="editor-panel panel">
           <div className="editor-toolbar">
             <span>
-              <b>Main.java</b>
+              <b>Solution.java</b>
             </span>
             <span className="editor-tools">
               <button
@@ -139,7 +139,7 @@ export default function AssessmentPage({
               spellCheck="false"
               value={code}
               onChange={(event) => setCode(event.target.value)}
-              placeholder="Insert generated Java starter code or write your Java solution here"
+              placeholder="Write class Solution and its public problem method. A test main method is added automatically."
             />
           </div>
           <div className="console">
@@ -183,6 +183,16 @@ export default function AssessmentPage({
                     <span>Got: <code>{firstFailedTest.output || firstFailedTest.stderr || "(no output)"}</code></span>
                   </div>
                 )}
+                {testResult.tests?.map((test, index) => (
+                  <div
+                    className={`inline-failure ${test.passed ? "test-output-passed" : ""}`}
+                    key={`${test.input}-${index}`}
+                  >
+                    <b>Test case {index + 1} {test.passed ? "passed" : "failed"}</b>
+                    <span>Expected: <code>{test.expected}</code></span>
+                    <span>Your output: <code>{test.output || test.stderr || "(no output)"}</code></span>
+                  </div>
+                ))}
               </>
             )}
           </div>

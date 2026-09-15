@@ -17,8 +17,10 @@ services:
             PISTON_COMPILE_TIMEOUT: "8000"
             PISTON_COMPILE_CPU_TIME: "8000"
             PISTON_COMPILE_MEMORY_LIMIT: "536870912"
-            PISTON_RUN_TIMEOUT: "4000"
-            PISTON_RUN_CPU_TIME: "2000"
+            # JVM startup can exceed 2 seconds in Docker on Windows. Keep a
+            # bounded limit while allowing valid Java solutions to print.
+            PISTON_RUN_TIMEOUT: "8000"
+            PISTON_RUN_CPU_TIME: "8000"
             PISTON_RUN_MEMORY_LIMIT: "268435456"
         cpus: "2.0"
         mem_limit: 2g

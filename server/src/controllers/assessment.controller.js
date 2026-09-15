@@ -2,6 +2,7 @@ import {
   completeAssessment,
   createAiInteraction,
   createAssessment,
+  exitAssessment as exitAssessmentService,
   findAssessment,
   findEvaluation,
   executeAssessment,
@@ -30,6 +31,9 @@ export const runAssessment = send((req) => executeAssessment(req.user.id, req.pa
 export const runAssessmentTests = send((req) => executeAssessmentTests(req.user.id, req.params.id, req.body));
 export const submitAssessment = send((req) =>
   completeAssessment(req.user.id, req.params.id, req.body),
+);
+export const exitAssessment = send((req) =>
+  exitAssessmentService(req.user.id, req.params.id, req.body),
 );
 export const getEvaluation = send((req) =>
   findEvaluation(req.user.id, req.params.id),

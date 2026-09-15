@@ -19,6 +19,11 @@ const evaluationSchema = new mongoose.Schema(
       default: 0,
     },
 
+    edgeCaseScore: {
+      type: Number,
+      default: 0,
+    },
+
     problemSolvingScore: {
       type: Number,
       default: 0,

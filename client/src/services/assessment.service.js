@@ -16,3 +16,5 @@ export const submitAssessment = (id, values) =>
   api
     .post(`/assessments/${id}/submit`, values)
     .then((response) => response.data);
+export const exitAssessment = (id, values) =>
+  api.post(`/assessments/${id}/exit`, values).then((response) => response.data);

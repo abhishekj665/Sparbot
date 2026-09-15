@@ -56,13 +56,13 @@ export default function App() {
         language={session.language}
         interactions={session.interactions}
         onAsk={session.ask}
-        onApplyCode={session.setCode}
+        onApplyCode={session.applySuggestedCode}
         onRun={session.execute}
         onRunTests={session.executeTests}
         runResult={session.runResult}
         testResult={session.testResult}
         onSubmit={() => session.submit(false)}
-        onExit={() => session.submit(true)}
+        onExit={session.exit}
         loading={session.loading}
         error={session.error}
       />
